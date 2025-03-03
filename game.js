@@ -68,6 +68,10 @@ let skyColors = {
 // Add a variable to track active particle systems
 let activeParticles = [];
 
+// Add a variable to track the current view mode
+let isFirstPerson = false;
+let thirdPersonCameraPosition = { x: 0, y: 0, z: 5 };
+
 // Initialize the game
 function init() {
     // Create scene
@@ -164,6 +168,27 @@ function init() {
             }, 3000);
         }
     });
+
+    // Add view toggle button event listener
+    const viewToggleButton = document.getElementById('viewToggle');
+    viewToggleButton.addEventListener('click', toggleView);
+
+    // Add view mode toggle event listener
+    const viewModeToggle = document.getElementById('viewModeToggle');
+    viewModeToggle.addEventListener('change', function () {
+        if (this.checked !== isFirstPerson) {
+            toggleView();
+        }
+    });
+
+    // Check for saved view preference
+    const savedViewMode = localStorage.getItem('flappyBird3dViewMode');
+    if (savedViewMode === 'firstPerson') {
+        // Set first-person mode without animation
+        isFirstPerson = true;
+        viewModeToggle.checked = true;
+        viewToggleButton.textContent = 'Switch to Third Person';
+    }
 }
 
 // Create the bird
@@ -269,9 +294,67 @@ function onTouchStart() {
     }
 }
 
-// Make the bird jump
+// Add a dedicated function to update the first-person camera
+function updateFirstPersonCamera() {
+    if (!isFirstPerson || !bird) return;
+
+    // Reset camera rotation first to avoid compounding rotations
+    camera.rotation.set(0, 0, 0);
+
+    // Position camera at bird's position - moved forward to avoid seeing bird's face
+    camera.position.set(
+        bird.position.x + 0.15, // Move forward inside the bird's head
+        bird.position.y + 0.1,  // Slightly above the bird's center
+        bird.position.z         // Same z position
+    );
+
+    // Look in the direction of movement (forward)
+    const lookTarget = new THREE.Vector3(
+        bird.position.x + 3, // Look further ahead
+        bird.position.y,     // Same height
+        bird.position.z      // Same depth
+    );
+    camera.lookAt(lookTarget);
+
+    // Apply a subtle tilt based on bird's velocity, but keep "up" direction correct
+    const tiltAmount = THREE.MathUtils.clamp(birdVelocity * 1.5, -Math.PI / 12, Math.PI / 12);
+    camera.rotateZ(tiltAmount);
+}
+
+// Update the jump function to maintain first-person view
 function jump() {
     birdVelocity = jumpForce;
+
+    // Add camera shake effect in first-person view
+    if (isFirstPerson) {
+        // Don't change the camera position directly, just add a small velocity boost
+        // This will be handled naturally by the physics update
+
+        // Apply a very subtle camera shake
+        const smallRandomX = (Math.random() - 0.5) * 0.005;
+        const smallRandomZ = (Math.random() - 0.5) * 0.005;
+
+        // Store original rotation
+        const originalRotation = {
+            x: camera.rotation.x,
+            y: camera.rotation.y,
+            z: camera.rotation.z
+        };
+
+        // Apply small rotation
+        camera.rotation.x += smallRandomX;
+        camera.rotation.z += smallRandomZ;
+
+        // Reset camera rotation after a short delay
+        setTimeout(() => {
+            if (isFirstPerson && gameStarted && !gameOver) {
+                // Update first-person camera without resetting rotation completely
+                updateFirstPersonCamera();
+            }
+        }, 100);
+    }
+
+    // Play jump sound
     if (jumpSound && jumpSound.isPlaying) {
         jumpSound.stop();
     }
@@ -316,6 +399,14 @@ function startGame() {
     while (activeParticles.length > 0) {
         const particles = activeParticles.pop();
         scene.remove(particles);
+    }
+
+    // If in first-person view, ensure camera is properly positioned
+    if (isFirstPerson) {
+        // Ensure bird is positioned first
+        setTimeout(() => {
+            updateFirstPersonCamera();
+        }, 10);
     }
 }
 
@@ -461,6 +552,11 @@ function update() {
 
     // Check for collisions
     checkCollisions();
+
+    // Update camera position for first-person view - call this AFTER bird position is updated
+    if (isFirstPerson) {
+        updateFirstPersonCamera();
+    }
 }
 
 // Animation loop
@@ -936,6 +1032,48 @@ function applyPowerUp(type) {
                 scoreSound.play();
             }
             break;
+    }
+}
+
+// Update the toggleView function to save preference
+function toggleView() {
+    isFirstPerson = !isFirstPerson;
+
+    // Save view preference
+    localStorage.setItem('flappyBird3dViewMode', isFirstPerson ? 'firstPerson' : 'thirdPerson');
+
+    // Update the toggle in settings
+    const viewModeToggle = document.getElementById('viewModeToggle');
+    viewModeToggle.checked = isFirstPerson;
+
+    // Update the button text
+    const viewToggleButton = document.getElementById('viewToggle');
+
+    if (isFirstPerson) {
+        // Save current camera position for returning to third-person view
+        thirdPersonCameraPosition = {
+            x: camera.position.x,
+            y: camera.position.y,
+            z: camera.position.z
+        };
+
+        // Immediately update to first-person view
+        if (gameStarted && !gameOver) {
+            // Reset camera rotation before switching to first-person
+            camera.rotation.set(0, 0, 0);
+            updateFirstPersonCamera();
+        }
+
+        viewToggleButton.textContent = 'Switch to Third Person';
+    } else {
+        // Reset camera rotation
+        camera.rotation.set(0, 0, 0);
+
+        // Restore third-person camera position
+        camera.position.set(thirdPersonCameraPosition.x, thirdPersonCameraPosition.y, thirdPersonCameraPosition.z);
+        camera.lookAt(0, 0, 0);
+
+        viewToggleButton.textContent = 'Switch to First Person';
     }
 }
 
